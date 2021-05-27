@@ -122,7 +122,7 @@ fn print_structure(opts: Opts) {
             .bound("T", "serde::Deserialize<'de>")
             .bound("D", "serde::Deserializer<'de>");
         function.line("let opt: Option<String> = serde::Deserialize::deserialize(de)?;");
-        function.line("let opt = opt.as_ref().map(String::as_str);");
+        function.line("let opt = opt.as_deref();");
         function.line("match opt {");
         function.line("\tNone | Some(\"\") => Ok(None),");
         function.line("\tSome(s) => T::deserialize(serde::de::IntoDeserializer::into_deserializer(s)).map(Some),");
