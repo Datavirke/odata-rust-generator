@@ -71,6 +71,8 @@ fn print_structure(opts: Opts) {
     let project = Edmx::from_str(&source).expect("failed to parse metadata document");
 
     let mut root = Scope::new();
+    root.raw("// Code automatically generated using https://github.com/Datavirke/odata-rust-generator");
+    root.raw("// Any changes made to this file may be overwritten by future code generation runs!");
     let mut contains_non_ascii = false;
 
     if !opts.no_empty_string_is_null {
