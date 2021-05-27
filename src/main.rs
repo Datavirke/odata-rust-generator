@@ -1,5 +1,5 @@
 use clap::Clap;
-use codegen::{Field, Function, Scope};
+use codegen::{Field, Function, Scope, Trait};
 use indoc::indoc;
 use odata_parser_rs::{Edmx, Property, PropertyType};
 use std::{collections::VecDeque, path::PathBuf, str::FromStr};
@@ -22,6 +22,12 @@ struct Opts {
         about = "don't treat empty strings as nulls, when parsing from OpenData format"
     )]
     pub no_empty_string_is_null: bool,
+
+    #[clap(
+        long,
+        about = "don't produce OpenDataModel traits and implementations for run-time reflection"
+    )]
+    pub no_reflection: bool,
 
     #[clap(
         short,
@@ -84,6 +90,30 @@ fn print_structure(opts: Opts) {
         root.push_fn(function);
     }
 
+    if !opts.no_reflection {
+        let mut opendata_model = Trait::new("OpenDataModel");
+        opendata_model.vis("pub");
+        opendata_model.new_fn("name").ret("&'static str");
+        opendata_model
+            .new_fn("fields")
+            .ret("&'static [(&'static str, OpenDataType)]");
+        root.push_trait(opendata_model);
+
+        let datatype = root.new_enum("OpenDataType").vis("pub");
+        datatype.new_variant("Binary").named("nullable", "bool");
+        datatype.new_variant("Boolean").named("nullable", "bool");
+        datatype.new_variant("Byte").named("nullable", "bool");
+        datatype.new_variant("DateTime").named("nullable", "bool");
+        datatype
+            .new_variant("DateTimeOffset")
+            .named("nullable", "bool");
+        datatype.new_variant("Decimal").named("nullable", "bool");
+        datatype.new_variant("Double").named("nullable", "bool");
+        datatype.new_variant("Int16").named("nullable", "bool");
+        datatype.new_variant("Int32").named("nullable", "bool");
+        datatype.new_variant("String").named("nullable", "bool");
+    }
+
     for schema in &project.data_services.schemas {
         let mut path_segments: VecDeque<_> =
             schema.namespace.split('.').map(str::to_lowercase).collect();
@@ -110,8 +140,6 @@ fn print_structure(opts: Opts) {
                 obj.derive("Serialize").derive("Deserialize");
             }
 
-            // #[serde(deserialize_with = "empty_string_as_none")]
-
             for property in &entity.properties {
                 contains_non_ascii = contains_non_ascii || property.name.is_ascii();
                 let typename = edm_type_to_rust_type(&property);
@@ -130,9 +158,61 @@ fn print_structure(opts: Opts) {
                 } else {
                     Field::new(&format!("pub {}", &property.name), typename)
                 };
-
                 field.annotation(annotations.iter().map(String::as_str).collect());
                 obj.push_field(field);
+            }
+
+            if !opts.no_reflection {
+                let fields: Vec<(_, _)> = entity
+                    .properties
+                    .iter()
+                    .map(|property| {
+                        let typename = format!(
+                            "{} {{ nullable: {} }}",
+                            match property.inner {
+                                PropertyType::Binary { .. } => "Binary",
+                                PropertyType::Boolean { .. } => "Boolean",
+                                PropertyType::Byte { .. } => "Byte",
+                                PropertyType::DateTime { .. } => "DateTime",
+                                PropertyType::DateTimeOffset { .. } => "DateTimeOffset",
+                                PropertyType::Decimal { .. } => "Decimal",
+                                PropertyType::Double { .. } => "Double",
+                                PropertyType::Int16 { .. } => "Int16",
+                                PropertyType::Int32 { .. } => "Int32",
+                                PropertyType::String { .. } => "String",
+                            },
+                            property.nullable
+                        );
+
+                        if KEYWORDS.contains(&property.name.as_str()) {
+                            (format!("m_{}", &property.name), typename)
+                        } else {
+                            (format!("{}", &property.name), typename)
+                        }
+                    })
+                    .collect();
+
+                let opendata_model = head
+                    .new_impl(&entity.name)
+                    .impl_trait("crate::OpenDataModel");
+                opendata_model
+                    .new_fn("name")
+                    .ret("&'static str")
+                    .line(format!("\"{}\"", &entity.name));
+                opendata_model
+                    .new_fn("fields")
+                    .ret("&'static [(&'static str, crate::OpenDataType)]")
+                    .line(format!(
+                        "&[{}]",
+                        fields
+                            .iter()
+                            .map(|field| format!(
+                                "(\"{}\", crate::OpenDataType::{})",
+                                field.0, field.1
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
             }
         }
 
@@ -186,6 +266,7 @@ mod tests {
             input_file: PathBuf::from("tests/folketinget.xml"),
             no_serde: false,
             no_empty_string_is_null: false,
+            no_reflection: false,
             output_file: None,
         })
     }
