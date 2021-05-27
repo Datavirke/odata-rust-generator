@@ -1,0 +1,189 @@
+use clap::Clap;
+use codegen::{Field, Function, Scope};
+use indoc::indoc;
+use odata_parser_rs::{Edmx, Property, PropertyType};
+use std::{collections::VecDeque, path::PathBuf, str::FromStr};
+
+#[derive(Clap)]
+#[clap(long_about = indoc! {"
+    Command-line utility for generating Rust code from OData metadata.xml documents
+"})]
+struct Opts {
+    #[clap(about = "path to metadata.xml file to generate code from")]
+    pub input_file: PathBuf,
+    #[clap(
+        long,
+        about = "don't derive Serialize and Deserialize traits to all structs"
+    )]
+    pub no_serde: bool,
+
+    #[clap(
+        long,
+        about = "don't treat empty strings as nulls, when parsing from OpenData format"
+    )]
+    pub no_empty_string_is_null: bool,
+
+    #[clap(
+        short,
+        long,
+        about = "write output to file, writes to stdout if not specified"
+    )]
+    pub output_file: Option<PathBuf>,
+}
+
+const KEYWORDS: [&'static str; 1] = ["type"];
+
+fn edm_type_to_rust_type(property: &Property) -> String {
+    let inner = match property.inner {
+        PropertyType::Binary { .. } => "Vec<u8>",
+        PropertyType::Boolean { .. } => "bool",
+        PropertyType::Byte { .. } => "u8",
+        PropertyType::DateTime { .. } => "chrono::NaiveDateTime",
+        PropertyType::DateTimeOffset { .. } => "std::time::Duration",
+        PropertyType::Decimal { .. } => "f64",
+        PropertyType::Double { .. } => "f64",
+        PropertyType::Int16 { .. } => "i16",
+        PropertyType::Int32 { .. } => "i32",
+        PropertyType::String { .. } => "String",
+    };
+
+    if property.nullable {
+        format!("Option<{}>", inner)
+    } else {
+        inner.to_string()
+    }
+}
+
+fn print_structure(opts: Opts) {
+    let source = std::fs::read_to_string(&opts.input_file).expect(&format!(
+        "failed to read input metadata file at {}",
+        opts.input_file.display()
+    ));
+
+    let project = Edmx::from_str(&source).expect("failed to parse metadata document");
+
+    let mut root = Scope::new();
+    let mut contains_non_ascii = false;
+
+    if !opts.no_empty_string_is_null {
+        let mut function = Function::new("empty_string_as_none");
+        function.generic("'de").generic("D").generic("T");
+        function.arg("de", "D");
+        function.ret("Result<Option<T>, D::Error>");
+        function
+            .bound("T", "serde::Deserialize<'de>")
+            .bound("D", "serde::Deserializer<'de>");
+        function.line("let opt: Option<String> = serde::Deserialize::deserialize(de)?;");
+        function.line("let opt = opt.as_ref().map(String::as_str);");
+        function.line("match opt {");
+        function.line("\tNone | Some(\"\") => Ok(None),");
+        function.line("\tSome(s) => T::deserialize(serde::de::IntoDeserializer::into_deserializer(s)).map(Some),");
+        function.line("}");
+        root.push_fn(function);
+    }
+
+    for schema in &project.data_services.schemas {
+        let mut path_segments: VecDeque<_> =
+            schema.namespace.split(".").map(str::to_lowercase).collect();
+        let mut head = root.get_or_new_module(&path_segments.pop_front().unwrap());
+        head.vis("pub");
+
+        for path_segment in path_segments {
+            head = head.get_or_new_module(&path_segment);
+            head.vis("pub");
+            contains_non_ascii = contains_non_ascii || path_segment.is_ascii();
+        }
+
+        if !opts.no_serde && !schema.entities.is_empty() {
+            head.import("serde", "Serialize");
+            head.import("serde", "Deserialize");
+        }
+
+        for entity in &schema.entities {
+            let obj = head.scope().new_struct(&entity.name);
+            obj.vis("pub");
+            contains_non_ascii = contains_non_ascii || entity.name.is_ascii();
+
+            if !opts.no_serde {
+                obj.derive("Serialize").derive("Deserialize");
+            }
+
+            // #[serde(deserialize_with = "empty_string_as_none")]
+
+            for property in &entity.properties {
+                contains_non_ascii = contains_non_ascii || property.name.is_ascii();
+                let typename = edm_type_to_rust_type(&property);
+                let mut annotations =
+                    if !opts.no_empty_string_is_null && typename == "Option<String>" {
+                        vec![String::from(
+                            "#[serde(deserialize_with = \"crate::empty_string_as_none\")]",
+                        )]
+                    } else {
+                        Vec::new()
+                    };
+
+                let mut field = if KEYWORDS.contains(&property.name.as_str()) {
+                    annotations.push(format!("#[serde(rename = \"{}\")]", &property.name));
+                    Field::new(&format!("pub m_{}", &property.name), typename)
+                } else {
+                    Field::new(&format!("pub {}", &property.name), typename)
+                };
+
+                field.annotation(annotations.iter().map(String::as_str).collect());
+                obj.push_field(field);
+            }
+        }
+
+        if let Some(sets) = schema.entity_sets() {
+            for set in sets {
+                let mut path: Vec<_> = set.entity_type.split(".").map(str::to_lowercase).collect();
+                path.pop();
+
+                head.scope().import(&format!("crate::{}", path.join("::")), &set.name)
+                    .vis("pub");
+            }
+        }
+    }
+
+    if let Some(default_schema) = project.default_schema() {
+        root.import(&default_schema.namespace.to_lowercase(), "*")
+            .vis("pub");
+    }
+
+    let output = format!(
+        "{}{}",
+        if contains_non_ascii {
+            "#![feature(non_ascii_idents)]\n\n"
+        } else {
+            ""
+        },
+        root.to_string()
+    );
+
+    if let Some(output_file) = &opts.output_file {
+        std::fs::write(&output_file, output).expect("failed to write output to file");
+    } else {
+        println!("{}", &output);
+    }
+}
+
+fn main() {
+    let opts = Opts::parse();
+
+    print_structure(opts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generating_code_from_xml() {
+        print_structure(Opts {
+            input_file: PathBuf::from("tests/folketinget.xml"),
+            no_serde: false,
+            no_empty_string_is_null: false,
+            output_file: None,
+        })
+    }
+}
