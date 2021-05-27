@@ -31,7 +31,7 @@ struct Opts {
     pub output_file: Option<PathBuf>,
 }
 
-const KEYWORDS: [&'static str; 1] = ["type"];
+const KEYWORDS: [&str; 1] = ["type"];
 
 fn edm_type_to_rust_type(property: &Property) -> String {
     let inner = match property.inner {
@@ -55,10 +55,12 @@ fn edm_type_to_rust_type(property: &Property) -> String {
 }
 
 fn print_structure(opts: Opts) {
-    let source = std::fs::read_to_string(&opts.input_file).expect(&format!(
-        "failed to read input metadata file at {}",
-        opts.input_file.display()
-    ));
+    let source = std::fs::read_to_string(&opts.input_file).unwrap_or_else(|_| {
+        panic!(
+            "failed to read input metadata file at {}",
+            opts.input_file.display()
+        )
+    });
 
     let project = Edmx::from_str(&source).expect("failed to parse metadata document");
 
@@ -84,7 +86,7 @@ fn print_structure(opts: Opts) {
 
     for schema in &project.data_services.schemas {
         let mut path_segments: VecDeque<_> =
-            schema.namespace.split(".").map(str::to_lowercase).collect();
+            schema.namespace.split('.').map(str::to_lowercase).collect();
         let mut head = root.get_or_new_module(&path_segments.pop_front().unwrap());
         head.vis("pub");
 
@@ -136,7 +138,7 @@ fn print_structure(opts: Opts) {
 
         if let Some(sets) = schema.entity_sets() {
             for set in sets {
-                let mut path: Vec<_> = set.entity_type.split(".").map(str::to_lowercase).collect();
+                let mut path: Vec<_> = set.entity_type.split('.').map(str::to_lowercase).collect();
                 path.pop();
 
                 head.scope()
