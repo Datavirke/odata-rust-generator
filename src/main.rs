@@ -143,22 +143,19 @@ fn print_structure(opts: Opts) {
             for property in &entity.properties {
                 contains_non_ascii = contains_non_ascii || property.name.is_ascii();
                 let typename = edm_type_to_rust_type(&property);
-                let mut annotations =
-                    if !opts.no_empty_string_is_null && typename == "Option<String>" {
-                        vec![String::from(
-                            "#[serde(deserialize_with = \"crate::empty_string_as_none\")]",
-                        )]
-                    } else {
-                        Vec::new()
-                    };
 
                 let mut field = if KEYWORDS.contains(&property.name.as_str()) {
-                    annotations.push(format!("#[serde(rename = \"{}\")]", &property.name));
-                    Field::new(&format!("pub m_{}", &property.name), typename)
+                    Field::new(&format!("pub r#{}", &property.name), &typename)
                 } else {
-                    Field::new(&format!("pub {}", &property.name), typename)
+                    Field::new(&format!("pub {}", &property.name), &typename)
                 };
-                field.annotation(annotations.iter().map(String::as_str).collect());
+
+                if !opts.no_empty_string_is_null && typename == "Option<String>" {
+                    field.annotation(vec![
+                        "#[serde(deserialize_with = \"crate::empty_string_as_none\")]",
+                    ]);
+                };
+
                 obj.push_field(field);
             }
 
