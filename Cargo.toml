@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Mathias Pius <contact@pius.io>"]
 keywords = ["odata", "code-generation", "opendata"]
 repository = "https://github.com/Datavirke/odata-rust-generator"
+description = "Generates Rust code that represents the models of an OpenData document"
 license = "MIT"
 edition = "2018"
 
