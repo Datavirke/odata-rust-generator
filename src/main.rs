@@ -139,7 +139,8 @@ fn print_structure(opts: Opts) {
                 let mut path: Vec<_> = set.entity_type.split(".").map(str::to_lowercase).collect();
                 path.pop();
 
-                head.scope().import(&format!("crate::{}", path.join("::")), &set.name)
+                head.scope()
+                    .import(&format!("crate::{}", path.join("::")), &set.name)
                     .vis("pub");
             }
         }
