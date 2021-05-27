@@ -184,11 +184,7 @@ fn print_structure(opts: Opts) {
                             property.nullable
                         );
 
-                        if KEYWORDS.contains(&property.name.as_str()) {
-                            (format!("m_{}", &property.name), typename)
-                        } else {
-                            (property.name.clone(), typename)
-                        }
+                        (property.name.clone(), typename)
                     })
                     .collect();
 
