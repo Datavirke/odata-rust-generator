@@ -66,7 +66,7 @@ fn entity_type_reflection(entity: &EntityType) -> String {
         .iter()
         .map(|property| {
             let typename = format!(
-                "{} {{ nullable: {} }}",
+                "{} {{ nullable: {}, key: {} }}",
                 match property.inner {
                     PropertyType::Binary { .. } => "Binary",
                     PropertyType::Boolean { .. } => "Boolean",
@@ -79,7 +79,8 @@ fn entity_type_reflection(entity: &EntityType) -> String {
                     PropertyType::Int32 { .. } => "Int32",
                     PropertyType::String { .. } => "String",
                 },
-                property.nullable
+                property.nullable,
+                entity.key.property_ref.name == property.name
             );
 
             (property.name.clone(), typename)
@@ -140,18 +141,46 @@ fn print_structure(opts: Opts) {
         root.push_trait(opendata_model);
 
         let datatype = root.new_enum("OpenDataType").vis("pub");
-        datatype.new_variant("Binary").named("nullable", "bool");
-        datatype.new_variant("Boolean").named("nullable", "bool");
-        datatype.new_variant("Byte").named("nullable", "bool");
-        datatype.new_variant("DateTime").named("nullable", "bool");
+        datatype
+            .new_variant("Binary")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("Boolean")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("Byte")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("DateTime")
+            .named("nullable", "bool")
+            .named("key", "bool");
         datatype
             .new_variant("DateTimeOffset")
-            .named("nullable", "bool");
-        datatype.new_variant("Decimal").named("nullable", "bool");
-        datatype.new_variant("Double").named("nullable", "bool");
-        datatype.new_variant("Int16").named("nullable", "bool");
-        datatype.new_variant("Int32").named("nullable", "bool");
-        datatype.new_variant("String").named("nullable", "bool");
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("Decimal")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("Double")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("Int16")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("Int32")
+            .named("nullable", "bool")
+            .named("key", "bool");
+        datatype
+            .new_variant("String")
+            .named("nullable", "bool")
+            .named("key", "bool");
     }
 
     for schema in &project.data_services.schemas {
