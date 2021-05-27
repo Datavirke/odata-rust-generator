@@ -1,7 +1,7 @@
 use clap::Clap;
 use codegen::{Field, Function, Scope, Trait};
 use indoc::indoc;
-use odata_parser_rs::{Edmx, Property, PropertyType};
+use odata_parser_rs::{Edmx, EntityType, Property, PropertyType};
 use std::{collections::VecDeque, path::PathBuf, str::FromStr};
 
 #[derive(Clap)]
@@ -58,6 +58,42 @@ fn edm_type_to_rust_type(property: &Property) -> String {
     } else {
         inner.to_string()
     }
+}
+
+fn entity_type_reflection(entity: &EntityType) -> String {
+    let fields: Vec<(_, _)> = entity
+        .properties
+        .iter()
+        .map(|property| {
+            let typename = format!(
+                "{} {{ nullable: {} }}",
+                match property.inner {
+                    PropertyType::Binary { .. } => "Binary",
+                    PropertyType::Boolean { .. } => "Boolean",
+                    PropertyType::Byte { .. } => "Byte",
+                    PropertyType::DateTime { .. } => "DateTime",
+                    PropertyType::DateTimeOffset { .. } => "DateTimeOffset",
+                    PropertyType::Decimal { .. } => "Decimal",
+                    PropertyType::Double { .. } => "Double",
+                    PropertyType::Int16 { .. } => "Int16",
+                    PropertyType::Int32 { .. } => "Int32",
+                    PropertyType::String { .. } => "String",
+                },
+                property.nullable
+            );
+
+            (property.name.clone(), typename)
+        })
+        .collect();
+
+    format!(
+        "&[{}]",
+        fields
+            .iter()
+            .map(|field| format!("(\"{}\", OpenDataType::{})", field.0, field.1))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn print_structure(opts: Opts) {
@@ -135,6 +171,26 @@ fn print_structure(opts: Opts) {
             head.import("serde", "Deserialize");
         }
 
+        if !opts.no_reflection && !schema.entities.is_empty() {
+            head.import("crate", "OpenDataModel");
+            head.import("crate", "OpenDataType");
+
+            let entity_types = head
+                .new_fn("entity_types")
+                .vis("pub")
+                .ret("&'static [(&'static str, &'static [(&'static str, crate::OpenDataType)])]")
+                .line("&[");
+
+            for entity in &schema.entities {
+                entity_types.line(format!(
+                    "\t(\"{}\", {}),",
+                    entity.name,
+                    entity_type_reflection(entity)
+                ));
+            }
+            entity_types.line("]");
+        }
+
         for entity in &schema.entities {
             let obj = head.scope().new_struct(&entity.name);
             obj.vis("pub");
@@ -164,52 +220,17 @@ fn print_structure(opts: Opts) {
             }
 
             if !opts.no_reflection {
-                let fields: Vec<(_, _)> = entity
-                    .properties
-                    .iter()
-                    .map(|property| {
-                        let typename = format!(
-                            "{} {{ nullable: {} }}",
-                            match property.inner {
-                                PropertyType::Binary { .. } => "Binary",
-                                PropertyType::Boolean { .. } => "Boolean",
-                                PropertyType::Byte { .. } => "Byte",
-                                PropertyType::DateTime { .. } => "DateTime",
-                                PropertyType::DateTimeOffset { .. } => "DateTimeOffset",
-                                PropertyType::Decimal { .. } => "Decimal",
-                                PropertyType::Double { .. } => "Double",
-                                PropertyType::Int16 { .. } => "Int16",
-                                PropertyType::Int32 { .. } => "Int32",
-                                PropertyType::String { .. } => "String",
-                            },
-                            property.nullable
-                        );
+                let fields = entity_type_reflection(entity);
 
-                        (property.name.clone(), typename)
-                    })
-                    .collect();
-
-                let opendata_model = head
-                    .new_impl(&entity.name)
-                    .impl_trait("crate::OpenDataModel");
+                let opendata_model = head.new_impl(&entity.name).impl_trait("OpenDataModel");
                 opendata_model
                     .new_fn("name")
                     .ret("&'static str")
                     .line(format!("\"{}\"", &entity.name));
                 opendata_model
                     .new_fn("fields")
-                    .ret("&'static [(&'static str, crate::OpenDataType)]")
-                    .line(format!(
-                        "&[{}]",
-                        fields
-                            .iter()
-                            .map(|field| format!(
-                                "(\"{}\", crate::OpenDataType::{})",
-                                field.0, field.1
-                            ))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
+                    .ret("&'static [(&'static str, OpenDataType)]")
+                    .line(fields);
             }
         }
 
