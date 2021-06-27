@@ -1,6 +1,6 @@
 [package]
 name = "odata-rust-generator"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Mathias Pius <contact@pius.io>"]
 keywords = ["odata", "code-generation", "opendata"]
 repository = "https://github.com/Datavirke/odata-rust-generator"

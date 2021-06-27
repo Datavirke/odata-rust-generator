@@ -248,7 +248,9 @@ fn print_structure(opts: Opts) {
             if !opts.no_reflection {
                 let fields = entity_type_reflection(entity);
 
-                let opendata_model = head.new_impl(&entity.name).impl_trait("crate::OpenDataModel");
+                let opendata_model = head
+                    .new_impl(&entity.name)
+                    .impl_trait("crate::OpenDataModel");
                 opendata_model.r#macro("#[cfg(feature = \"reflection\")]");
                 opendata_model
                     .new_fn("name")
