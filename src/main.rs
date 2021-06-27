@@ -220,15 +220,13 @@ fn print_structure(opts: Opts) {
         for entity in &schema.entities {
             let obj = head.scope().new_struct(&entity.name);
             obj.vis("pub");
-            contains_non_ascii = contains_non_ascii || entity.name.is_ascii();
 
             if !opts.no_serde {
                 obj.r#macro("#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]");
             }
 
             for property in &entity.properties {
-                contains_non_ascii = contains_non_ascii || property.name.is_ascii();
-                let typename = edm_type_to_rust_type(&property);
+                let typename = edm_type_to_rust_type(property);
 
                 let mut field = if KEYWORDS.contains(&property.name.as_str()) {
                     Field::new(&format!("pub r#{}", &property.name), &typename)
@@ -280,16 +278,7 @@ fn print_structure(opts: Opts) {
             .vis("pub");
     }
 
-    let output = format!(
-        "{}{}",
-        if contains_non_ascii {
-            "#![feature(non_ascii_idents)]\n\n"
-        } else {
-            ""
-        },
-        root.to_string()
-    );
-
+    let output = root.to_string();
     if let Some(output_file) = &opts.output_file {
         std::fs::write(&output_file, output).expect("failed to write output to file");
     } else {
