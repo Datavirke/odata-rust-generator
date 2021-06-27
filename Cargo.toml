@@ -12,6 +12,7 @@ edition = "2018"
 
 [dependencies]
 odata-parser-rs = "0.1.1"
-codegen = "0.1.3"
+# Waiting for https://github.com/carllerche/codegen/pull/34 to be merged
+codegen = { git = "https://github.com/josefrcm/codegen", rev = "21cea9c45d7726499306d732376baba44fd1813d" }
 clap = "3.0.0-beta.2"
 indoc = "1.0.3"

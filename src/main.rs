@@ -91,7 +91,7 @@ fn entity_type_reflection(entity: &EntityType) -> String {
         "&[{}]",
         fields
             .iter()
-            .map(|field| format!("(\"{}\", OpenDataType::{})", field.0, field.1))
+            .map(|field| format!("(\"{}\", crate::OpenDataType::{})", field.0, field.1))
             .collect::<Vec<_>>()
             .join(", ")
     )
@@ -108,14 +108,16 @@ fn print_structure(opts: Opts) {
     let project = Edmx::from_str(&source).expect("failed to parse metadata document");
 
     let mut root = Scope::new();
-    root.raw(
-        "// Code automatically generated using https://github.com/Datavirke/odata-rust-generator",
+    root.raw(indoc! {"
+            // Code automatically generated using https://github.com/Datavirke/odata-rust-generator\n
+            // Any changes made to this file may be overwritten by future code generation runs!
+        "},
     );
-    root.raw("// Any changes made to this file may be overwritten by future code generation runs!");
     let mut contains_non_ascii = false;
 
     if !opts.no_empty_string_is_null {
         let mut function = Function::new("empty_string_as_none");
+        function.attr("cfg(feature = \"serde\")");
         function.generic("'de").generic("D").generic("T");
         function.arg("de", "D");
         function.ret("Result<Option<T>, D::Error>");
@@ -133,6 +135,7 @@ fn print_structure(opts: Opts) {
 
     if !opts.no_reflection {
         let mut opendata_model = Trait::new("OpenDataModel");
+        opendata_model.r#macro("#[cfg(feature = \"reflection\")]");
         opendata_model.vis("pub");
         opendata_model.new_fn("name").ret("&'static str");
         opendata_model
@@ -141,6 +144,7 @@ fn print_structure(opts: Opts) {
         root.push_trait(opendata_model);
 
         let datatype = root.new_enum("OpenDataType").vis("pub");
+        datatype.r#macro("#[cfg(feature = \"reflection\")]");
         datatype
             .new_variant("Binary")
             .named("nullable", "bool")
@@ -195,17 +199,10 @@ fn print_structure(opts: Opts) {
             contains_non_ascii = contains_non_ascii || path_segment.is_ascii();
         }
 
-        if !opts.no_serde && !schema.entities.is_empty() {
-            head.import("serde", "Serialize");
-            head.import("serde", "Deserialize");
-        }
-
         if !opts.no_reflection && !schema.entities.is_empty() {
-            head.import("crate", "OpenDataModel");
-            head.import("crate", "OpenDataType");
-
             let entity_types = head
                 .new_fn("entity_types")
+                .attr("cfg(feature = \"reflection\")")
                 .vis("pub")
                 .ret("&'static [(&'static str, &'static [(&'static str, crate::OpenDataType)])]")
                 .line("&[");
@@ -226,7 +223,7 @@ fn print_structure(opts: Opts) {
             contains_non_ascii = contains_non_ascii || entity.name.is_ascii();
 
             if !opts.no_serde {
-                obj.derive("Serialize").derive("Deserialize");
+                obj.r#macro("#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]");
             }
 
             for property in &entity.properties {
@@ -241,7 +238,7 @@ fn print_structure(opts: Opts) {
 
                 if !opts.no_empty_string_is_null && typename == "Option<String>" {
                     field.annotation(vec![
-                        "#[serde(deserialize_with = \"crate::empty_string_as_none\")]",
+                        "#[cfg_attr(feature = \"serde\", serde(deserialize_with = \"crate::empty_string_as_none\"))]",
                     ]);
                 };
 
@@ -251,14 +248,15 @@ fn print_structure(opts: Opts) {
             if !opts.no_reflection {
                 let fields = entity_type_reflection(entity);
 
-                let opendata_model = head.new_impl(&entity.name).impl_trait("OpenDataModel");
+                let opendata_model = head.new_impl(&entity.name).impl_trait("crate::OpenDataModel");
+                opendata_model.r#macro("#[cfg(feature = \"reflection\")]");
                 opendata_model
                     .new_fn("name")
                     .ret("&'static str")
                     .line(format!("\"{}\"", &entity.name));
                 opendata_model
                     .new_fn("fields")
-                    .ret("&'static [(&'static str, OpenDataType)]")
+                    .ret("&'static [(&'static str, crate::OpenDataType)]")
                     .line(fields);
             }
         }
