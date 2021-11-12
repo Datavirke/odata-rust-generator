@@ -30,6 +30,12 @@ struct Opts {
     pub no_reflection: bool,
 
     #[clap(
+        long,
+        about = "don't include NavigationProperties in the output structures. This makes deserializing $expand-ed properties impossible."
+    )]
+    pub no_expand: bool,
+
+    #[clap(
         short,
         long,
         about = "write output to file, writes to stdout if not specified"
@@ -58,6 +64,18 @@ fn edm_type_to_rust_type(property: &Property) -> String {
     } else {
         inner.to_string()
     }
+}
+
+fn entity_expansions(entity: &EntityType) -> String {
+    format!(
+        "&[{}]",
+        entity
+            .navigations
+            .iter()
+            .map(|property| { format!("\"{}\"", property.name) })
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn entity_type_reflection(entity: &EntityType) -> String {
@@ -109,10 +127,9 @@ fn print_structure(opts: Opts) {
 
     let mut root = Scope::new();
     root.raw(indoc! {"
-            // Code automatically generated using https://github.com/Datavirke/odata-rust-generator\n
+            // Code automatically generated using https://github.com/Datavirke/odata-rust-generator
             // Any changes made to this file may be overwritten by future code generation runs!
-        "},
-    );
+        "});
     let mut contains_non_ascii = false;
 
     if !opts.no_empty_string_is_null {
@@ -243,8 +260,23 @@ fn print_structure(opts: Opts) {
                 obj.push_field(field);
             }
 
+            if !opts.no_expand {
+                for navigation_property in &entity.navigations {
+                    let typename = format!("Vec<{}>", navigation_property.to_role);
+
+                    let field = if KEYWORDS.contains(&navigation_property.name.as_str()) {
+                        Field::new(&format!("pub r#{}", &navigation_property.name), &typename)
+                    } else {
+                        Field::new(&format!("pub {}", &navigation_property.name), &typename)
+                    };
+
+                    obj.push_field(field);
+                }
+            }
+
             if !opts.no_reflection {
                 let fields = entity_type_reflection(entity);
+                let expansions = entity_expansions(entity);
 
                 let opendata_model = head
                     .new_impl(&entity.name)
@@ -258,6 +290,13 @@ fn print_structure(opts: Opts) {
                     .new_fn("fields")
                     .ret("&'static [(&'static str, crate::OpenDataType)]")
                     .line(fields);
+
+                if !opts.no_expand {
+                    opendata_model
+                        .new_fn("relations")
+                        .ret("&'static [(&'static str, crate::OpenDataType)]")
+                        .line(expansions);
+                }
             }
         }
 
@@ -301,6 +340,7 @@ mod tests {
         print_structure(Opts {
             input_file: PathBuf::from("tests/folketinget.xml"),
             no_serde: false,
+            no_expand: false,
             no_empty_string_is_null: false,
             no_reflection: false,
             output_file: None,
