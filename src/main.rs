@@ -1,6 +1,6 @@
 #![feature(pattern)]
 
-use clap::Clap;
+use clap::Parser;
 use codegen::{Field, Function, Scope, Trait};
 use indoc::indoc;
 use odata_parser_rs::{Edmx, EntityType, NavigationProperty, Property, PropertyType, Schema};
@@ -10,7 +10,7 @@ use std::{
     str::{pattern::Pattern, FromStr},
 };
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(long_about = indoc! {"
     Command-line utility for generating Rust code from OData metadata.xml documents
 "})]
