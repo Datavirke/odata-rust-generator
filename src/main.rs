@@ -136,7 +136,7 @@ fn lookup_entity_type(
         }
     }
 
-    None;
+    None
 }
 
 fn print_structure(opts: Opts) {
