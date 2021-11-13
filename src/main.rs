@@ -15,36 +15,36 @@ use std::{
     Command-line utility for generating Rust code from OData metadata.xml documents
 "})]
 struct Opts {
-    #[clap(about = "path to metadata.xml file to generate code from")]
+    #[clap(about = "Path to metadata.xml file to generate code from")]
     pub input_file: PathBuf,
     #[clap(
         long,
-        about = "don't derive Serialize and Deserialize traits to all structs"
+        about = "Don't derive Serialize and Deserialize traits to all structs"
     )]
     pub no_serde: bool,
 
     #[clap(
         long,
-        about = "don't treat empty strings as nulls, when parsing from OpenData format"
+        about = "Don't coerce empty strings into None when deserializing into Option<String>"
     )]
     pub no_empty_string_is_null: bool,
 
     #[clap(
         long,
-        about = "don't produce OpenDataModel traits and implementations for run-time reflection"
+        about = "Don't produce OpenDataModel traits and implementations for run-time reflection"
     )]
     pub no_reflection: bool,
 
     #[clap(
         long,
-        about = "don't include NavigationProperties in the output structures. This makes deserializing $expand-ed properties impossible."
+        about = "Don't include NavigationProperties in the output structures. This makes deserializing $expand-ed properties impossible."
     )]
     pub no_expand: bool,
 
     #[clap(
         short,
         long,
-        about = "write output to file, writes to stdout if not specified"
+        about = "Write output to file. If not specified, output will be printed to stdout"
     )]
     pub output_file: Option<PathBuf>,
 }
@@ -189,6 +189,7 @@ fn print_structure(opts: Opts) {
 
         let datatype = root.new_enum("OpenDataType").vis("pub");
         datatype.r#macro("#[cfg(feature = \"reflection\")]");
+
         datatype
             .new_variant("Binary")
             .named("nullable", "bool")
@@ -303,11 +304,10 @@ fn print_structure(opts: Opts) {
                     let (typename, multiplicity) =
                         lookup_entity_type(schema, navigation_property).unwrap();
 
-                    let typename = 
-                        match multiplicity.as_str() {
-                            "0..1" => format!("Option<Box<{}>>", typename),
-                            _ => format!("Vec<{}>", typename),
-                        };
+                    let typename = match multiplicity.as_str() {
+                        "0..1" => format!("Option<Box<{}>>", typename),
+                        _ => format!("Vec<{}>", typename),
+                    };
 
                     let mut field = if KEYWORDS.contains(&navigation_property.name.as_str()) {
                         Field::new(

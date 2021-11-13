@@ -11,8 +11,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-odata-parser-rs = { path = "../odata-parser-rs" }
+odata-parser-rs = "0.1.2"
 # Waiting for https://github.com/carllerche/codegen/pull/34 to be merged
-codegen = { git = "https://github.com/josefrcm/codegen", rev = "21cea9c45d7726499306d732376baba44fd1813d" }
+codegen = { package = "codegen2", version = "0.1.4" }
 clap = "3.0.0-beta.2"
 indoc = "1.0.3"
