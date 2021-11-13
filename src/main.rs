@@ -109,7 +109,10 @@ fn entity_type_reflection(entity: &EntityType) -> String {
     )
 }
 
-fn lookup_entity_type(schema: &Schema, navigation_property: &NavigationProperty) -> Option<String> {
+fn lookup_entity_type(
+    schema: &Schema,
+    navigation_property: &NavigationProperty,
+) -> Option<(String, String)> {
     let associations = &schema.associations;
     let namespace = format!("{}.", &schema.namespace);
 
@@ -118,7 +121,15 @@ fn lookup_entity_type(schema: &Schema, navigation_property: &NavigationProperty)
             if let Some(role) = &end.role {
                 if role == &navigation_property.to_role {
                     if let Some(entity_type) = &end.entity_type {
-                        return namespace.strip_prefix_of(entity_type).map(String::from);
+                        return namespace
+                            .strip_prefix_of(entity_type)
+                            .map(String::from)
+                            .map(|name| {
+                                end.multiplicity
+                                    .as_ref()
+                                    .map(|multi| (name, multi.to_owned()))
+                            })
+                            .flatten();
                     }
                 }
             }
@@ -289,10 +300,14 @@ fn print_structure(opts: Opts) {
 
             if !opts.no_expand {
                 for navigation_property in &entity.navigations {
-                    let typename = format!(
-                        "Vec<{}>",
-                        lookup_entity_type(schema, navigation_property).unwrap()
-                    );
+                    let (typename, multiplicity) =
+                        lookup_entity_type(schema, navigation_property).unwrap();
+
+                    let typename = 
+                        match multiplicity.as_str() {
+                            "0..1" => format!("Option<Box<{}>>", typename),
+                            _ => format!("Vec<{}>", typename),
+                        };
 
                     let mut field = if KEYWORDS.contains(&navigation_property.name.as_str()) {
                         Field::new(
@@ -322,11 +337,8 @@ fn print_structure(opts: Opts) {
                     .navigations
                     .iter()
                     .map(|nav| {
-                        format!(
-                            "(\"{}\", \"{}\")",
-                            nav.name,
-                            lookup_entity_type(schema, nav).unwrap()
-                        )
+                        let (typename, _) = lookup_entity_type(schema, nav).unwrap();
+                        format!("(\"{}\", \"{}\")", nav.name, typename)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
