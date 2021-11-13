@@ -1,8 +1,14 @@
+#![feature(pattern)]
+
 use clap::Clap;
 use codegen::{Field, Function, Scope, Trait};
 use indoc::indoc;
-use odata_parser_rs::{Edmx, EntityType, Property, PropertyType};
-use std::{collections::VecDeque, path::PathBuf, str::FromStr};
+use odata_parser_rs::{Edmx, EntityType, NavigationProperty, Property, PropertyType, Schema};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    str::{pattern::Pattern, FromStr},
+};
 
 #[derive(Clap)]
 #[clap(long_about = indoc! {"
@@ -66,18 +72,6 @@ fn edm_type_to_rust_type(property: &Property) -> String {
     }
 }
 
-fn entity_expansions(entity: &EntityType) -> String {
-    format!(
-        "&[{}]",
-        entity
-            .navigations
-            .iter()
-            .map(|property| { format!("\"{}\"", property.name) })
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
-
 fn entity_type_reflection(entity: &EntityType) -> String {
     let fields: Vec<(_, _)> = entity
         .properties
@@ -113,6 +107,25 @@ fn entity_type_reflection(entity: &EntityType) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     )
+}
+
+fn lookup_entity_type(schema: &Schema, navigation_property: &NavigationProperty) -> Option<String> {
+    let associations = &schema.associations;
+    let namespace = format!("{}.", &schema.namespace);
+
+    for association in associations.iter() {
+        for end in &association.ends {
+            if let Some(role) = &end.role {
+                if role == &navigation_property.to_role {
+                    if let Some(entity_type) = &end.entity_type {
+                        return namespace.strip_prefix_of(entity_type).map(String::from);
+                    }
+                }
+            }
+        }
+    }
+
+    return None;
 }
 
 fn print_structure(opts: Opts) {
@@ -158,6 +171,9 @@ fn print_structure(opts: Opts) {
         opendata_model
             .new_fn("fields")
             .ret("&'static [(&'static str, OpenDataType)]");
+        opendata_model
+            .new_fn("relations")
+            .ret("&'static [(&'static str, &'static str)]");
         root.push_trait(opendata_model);
 
         let datatype = root.new_enum("OpenDataType").vis("pub");
@@ -237,6 +253,7 @@ fn print_structure(opts: Opts) {
         for entity in &schema.entities {
             let obj = head.scope().new_struct(&entity.name);
             obj.vis("pub");
+            obj.r#macro("#[derive(Debug)]");
 
             if !opts.no_serde {
                 obj.r#macro("#[cfg_attr(feature = \"serde\", derive(serde::Serialize, serde::Deserialize))]");
@@ -246,29 +263,54 @@ fn print_structure(opts: Opts) {
                 let typename = edm_type_to_rust_type(property);
 
                 let mut field = if KEYWORDS.contains(&property.name.as_str()) {
-                    Field::new(&format!("pub r#{}", &property.name), &typename)
+                    Field::new(
+                        &format!("pub r#{}", &property.name.to_lowercase()),
+                        &typename,
+                    )
                 } else {
-                    Field::new(&format!("pub {}", &property.name), &typename)
+                    Field::new(&format!("pub {}", &property.name.to_lowercase()), &typename)
                 };
+                let mut annotations = Vec::new();
 
                 if !opts.no_empty_string_is_null && typename == "Option<String>" {
-                    field.annotation(vec![
-                        "#[cfg_attr(feature = \"serde\", serde(deserialize_with = \"crate::empty_string_as_none\"))]",
-                    ]);
+                    annotations.push("#[cfg_attr(feature = \"serde\", serde(deserialize_with = \"crate::empty_string_as_none\"))]".to_string());
                 };
+
+                if property.name.chars().any(char::is_uppercase) {
+                    annotations.push(format!(
+                        "#[cfg_attr(feature = \"serde\", serde(rename = \"{}\"))]",
+                        property.name
+                    ));
+                }
+                field.annotation(annotations.iter().map(String::as_str).collect());
 
                 obj.push_field(field);
             }
 
             if !opts.no_expand {
                 for navigation_property in &entity.navigations {
-                    let typename = format!("Vec<{}>", navigation_property.to_role);
+                    let typename = format!(
+                        "Vec<{}>",
+                        lookup_entity_type(schema, navigation_property).unwrap()
+                    );
 
-                    let field = if KEYWORDS.contains(&navigation_property.name.as_str()) {
-                        Field::new(&format!("pub r#{}", &navigation_property.name), &typename)
+                    let mut field = if KEYWORDS.contains(&navigation_property.name.as_str()) {
+                        Field::new(
+                            &format!("pub r#{}", &navigation_property.name.to_lowercase()),
+                            &typename,
+                        )
                     } else {
-                        Field::new(&format!("pub {}", &navigation_property.name), &typename)
+                        Field::new(
+                            &format!("pub {}", &navigation_property.name.to_lowercase()),
+                            &typename,
+                        )
                     };
+                    if navigation_property.name.chars().any(char::is_uppercase) {
+                        field.annotation(vec![&format!(
+                            "#[cfg_attr(feature = \"serde\", serde(rename = \"{}\", default))]",
+                            navigation_property.name
+                        )]);
+                    }
 
                     obj.push_field(field);
                 }
@@ -276,7 +318,18 @@ fn print_structure(opts: Opts) {
 
             if !opts.no_reflection {
                 let fields = entity_type_reflection(entity);
-                let expansions = entity_expansions(entity);
+                let expansions = entity
+                    .navigations
+                    .iter()
+                    .map(|nav| {
+                        format!(
+                            "(\"{}\", \"{}\")",
+                            nav.name,
+                            lookup_entity_type(schema, nav).unwrap()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
 
                 let opendata_model = head
                     .new_impl(&entity.name)
@@ -294,8 +347,8 @@ fn print_structure(opts: Opts) {
                 if !opts.no_expand {
                     opendata_model
                         .new_fn("relations")
-                        .ret("&'static [(&'static str, crate::OpenDataType)]")
-                        .line(expansions);
+                        .ret("&'static [(&'static str, &'static str)]")
+                        .line(format!("&[{}]", expansions));
                 }
             }
         }
